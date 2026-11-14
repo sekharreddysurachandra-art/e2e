@@ -1,0 +1,4 @@
+# Never commit these folders or anything inside them
+__initial_load/
+__architectural_notes/
+__financial_reports/
