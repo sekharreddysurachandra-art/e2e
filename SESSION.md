@@ -38,4 +38,24 @@
 - No `schemachange-config.yml`; pass `--vars` and `--change-history-table` per environment.
 - Decide whether to remove `ddl/` now that `datamigrations/` replaces it.
 - Chargeback tag name/values not decided.
-- Not started: internal stage, Bronze tables and loads, Silver/Gold dynamic tables, semantic view, load task, masking policies.
+- Not started: Bronze tables and loads, Silver/Gold dynamic tables, semantic view, load task, masking policies.
+
+## Session 2 – 2026-11-14
+
+### Internal stage and file uploads
+- Created `SALES_DEV.BRONZE.SALES_CSV_STAGE` (internal, `DIRECTORY = (ENABLE = TRUE)`, `ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')`).
+- Added the stage to `ddl/01_databases_schemas.sql` (with the `snow stage copy` commands as comments) and to `V2.0.1__create_sales_schemas.sql`.
+- Uploaded from `__initial_load/` with `snow stage copy ... --parallel 10 --auto-compress -c PD77583_SNOW`, one file at a time:
+  - `initial_load/country-master/` – 4 files (line counts match local)
+  - `initial_load/product-master/` – 5 files
+  - `initial_load/store-master/` – 1 file
+  - `initial_load/customer-master/2019/<country_code>/` – 35 files
+  - `initial_load/sales-transaction/2019/` – 2 files
+- Directory table refreshed; all 49 files registered.
+- `COMMON.CSV_FF` left unchanged (`COMPRESSION = AUTO` reads `.csv.gz`).
+
+### Open items
+- `V2.0.1` was edited after it ran in DEV; schemachange will not re-run it there. The stage already exists in DEV; QA/PROD get it on their first deploy.
+- OAuth connection `PD77583` fails `snow stage copy` with S3 HTTP 400 – re-authenticate or keep using `PD77583_SNOW`.
+- Upload customer-master and sales-transaction 2020–2025.
+- Create Bronze tables (`INFER_SCHEMA`) and run `COPY INTO`.

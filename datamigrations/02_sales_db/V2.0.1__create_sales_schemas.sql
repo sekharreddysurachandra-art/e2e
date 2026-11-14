@@ -19,3 +19,9 @@ CREATE {{ transient }}SCHEMA IF NOT EXISTS SALES_{{ env }}.GOLD    -- create onl
 -- Common: shared file formats, sequences, UDFs and procedures
 CREATE {{ transient }}SCHEMA IF NOT EXISTS SALES_{{ env }}.COMMON  -- create only if missing
   COMMENT = 'Shared file formats, sequences, UDFs, procedures';  -- object purpose
+
+-- Bronze internal stage for CSV loads (files uploaded with snow stage copy)
+CREATE STAGE IF NOT EXISTS SALES_{{ env }}.BRONZE.SALES_CSV_STAGE  -- create only if missing
+  DIRECTORY  = (ENABLE = TRUE)                                    -- directory table for file listing
+  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')                           -- Snowflake-managed encryption
+  COMMENT    = 'Internal stage for initial CSV loads';            -- object purpose

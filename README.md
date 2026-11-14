@@ -52,6 +52,28 @@ schemachange deploy -f datamigrations -c PD77583 \
   --create-change-history-table
 ```
 
+## Initial load – files on stage
+
+Internal stage `SALES_DEV.BRONZE.SALES_CSV_STAGE` (directory table enabled, `SNOWFLAKE_SSE` encryption).
+Defined in `ddl/01_databases_schemas.sql` and `datamigrations/02_sales_db/V2.0.1__create_sales_schemas.sql`.
+The `snow stage copy` commands are kept as comments in `ddl/01_databases_schemas.sql`.
+
+- Uploaded one file at a time with `--parallel 10 --auto-compress` (files are stored as `.csv.gz`).
+- Connection `PD77583_SNOW` (the OAuth connection `PD77583` failed with an S3 HTTP 400).
+- `Zone.Identifier` and `.DS_Store` files are not uploaded.
+- `COMMON.CSV_FF` uses `COMPRESSION = AUTO`, so no change is needed to read `.csv.gz` files.
+
+| Stage path (`initial_load/…`) | Files | Validation |
+|---|---|---|
+| `country-master/` | 4 | Line counts match local files (36, 28, 6, 36) |
+| `product-master/` | 5 | Listed and registered in directory table |
+| `store-master/` | 1 | Listed and registered in directory table |
+| `customer-master/2019/<country_code>/` | 35 | 35 files listed; no other years on stage |
+| `sales-transaction/2019/` | 2 | Listed and registered in directory table |
+
+Total: 49 files. Not uploaded yet: customer-master and sales-transaction 2020–2025.
+No tables have been loaded yet (`COPY INTO` is the next step).
+
 ## Local-only folders (not in Git)
 
 These folders stay on your machine and are excluded by `.gitignore`:
