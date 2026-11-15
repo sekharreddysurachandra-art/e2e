@@ -67,7 +67,9 @@ datamigrations/
         ├── V3.2.0__create_gold_dim_store.sql
         ├── V3.3.0__create_gold_dim_customer.sql
         ├── V3.4.0__create_gold_dim_date.sql
-        └── V3.4.1__create_gold_dim_time.sql
+        ├── V3.4.1__create_gold_dim_time.sql
+        ├── V3.5.0__create_gold_fact_sales_line.sql
+        └── V3.5.1__create_gold_fact_sales_daily.sql
 ```
 
 - File names follow `V<version>__<description>.sql`; scripts run once, in version order.
@@ -212,3 +214,16 @@ Transient dynamic tables, `REFRESH_MODE = INCREMENTAL`, `TARGET_LAG = DOWNSTREAM
 - Apple fiscal calendar: the year ends on the last Saturday of September (52/53 weeks), 13-week quarters, Q1 = 14 weeks in 53-week years. Checked: FY2019 ends 2019-09-28, FY2020 2020-09-26, FY2022 2022-09-24, FY2023 2023-09-30 (53 weeks, Q1 ends 2022-12-31).
 - Sales timestamps are UTC (inferred from the hour-of-day pattern per country; the source has no timezone). `V2.9.12` adds `TIMEZONE`, `TRANSACTION_TIMESTAMP_LOCAL` and `TRANSACTION_DATE_LOCAL` to Silver `SALES_HEADER`; facts join `DIM_DATE` / `DIM_TIME` on the local date and time. `TRANSACTION_DATE` stays the UTC date.
 - Lineage: fact dynamic tables join `DIM_DATE`/`DIM_TIME` and store `DATE_SK`/`TIME_SK`, so the dates appear upstream of the facts in the dynamic table graph and `GET_LINEAGE`.
+
+## Gold facts
+
+| Script | Table | Grain | Lag | Rows |
+|---|---|---|---|---|
+| `V3.5.0` | `FACT_SALES_LINE` | sales line | `DOWNSTREAM` | 77,155 |
+| `V3.5.1` | `FACT_SALES_DAILY` | local date x country x store x product x channel x currency | `'1 hour'` (var `fact_lag`) | 68,181 |
+
+- `FACT_SALES_LINE` joins every dimension and stores its SK: `DATE_SK`/`TIME_SK` on the local date/minute (`-1` = unknown), SCD2 SKs (`PRODUCT_SK`, `PRODUCT_COUNTRY_SK`, `CUSTOMER_SK`, `STORE_SK`, `COUNTRY_SK`) for the version valid on the local transaction date. Point-in-time lookups use equality joins + `QUALIFY` to stay incremental. ONLINE sales have `STORE_SK` NULL by design.
+- Measures are in the transaction currency (`CURRENCY_CODE`); there is no FX source, so never sum across currencies.
+- `FACT_SALES_DAILY` is the top of the pipeline and the only table with a time lag - every Silver/Gold table below it is `DOWNSTREAM` and refreshes when it needs data. Distinct customers are not stored (not additive) - use the line fact.
+- Lineage (`GET_LINEAGE` / Snowsight graph): `SILVER.SALES_HEADER`, `SILVER.SALES_ITEM`, `DIM_DATE`, `DIM_TIME` and the 5 SCD2 dims -> `FACT_SALES_LINE` -> `FACT_SALES_DAILY`.
+- Checks (2019): every line found all dimensions (0 DQ warnings); net amount 50,186,627.97 and quantity 92,025 reconcile Silver = line fact = daily aggregate.

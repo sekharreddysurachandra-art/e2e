@@ -157,3 +157,9 @@
 - Both are regular transient tables (generated data cannot be a dynamic table) with CHANGE_TRACKING and PK constraints; FISCAL_YEAR_QUARTER widened to VARCHAR(9) during the load ('FY2015-Q2' is 9 characters).
 - Check: every sales header matches DIM_DATE and DIM_TIME on local date/time (FY2019 49,358, FY2020 27,797).
 - Next: Gold fact dynamic tables (join dims for SKs and lineage) with a real target lag; holidays not included (no source).
+
+## 2026-11-15 – Gold fact tables
+- `gold/V3.5.0` FACT_SALES_LINE: line grain from Silver SALES_ITEM + SALES_HEADER; joins DIM_DATE/DIM_TIME (local date/minute, -1 unknown) and the 5 SCD2 dims (version valid on the local date, equality join + QUALIFY); degenerate TRANSACTION_SK/ID; measures in CURRENCY_CODE; DQ = Silver issues + lookup misses. DOWNSTREAM, INCREMENTAL.
+- `gold/V3.5.1` FACT_SALES_DAILY: aggregate by local date x country x store x product x channel x currency; TARGET_LAG = '1 hour' (schemachange var `fact_lag`) - the one time lag in the pipeline. INCREMENTAL.
+- Verified: 77,155 lines, all dims matched, 0 WARN, 15,351 ONLINE lines without store; 68,181 daily rows; net 50,186,627.97 and qty 92,025 equal in Silver, line fact and aggregate; GET_LINEAGE shows all dims + Silver sales -> FACT_SALES_LINE -> FACT_SALES_DAILY.
+- Open: FX conversion (no rate source), semantic view, incremental load task, masking on DIM_CUSTOMER, DMFs.
