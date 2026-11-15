@@ -182,3 +182,9 @@
 - README: added "Pipeline overview" (layers, refresh model, current state); moved "Local-only folders" to the end so Bronze -> Silver -> Gold -> PII sections read in order.
 - agent.md: added "Pipeline status (summary)" for new sessions; removed the outdated "fact lag not decided" note; facts line now says all facts INCREMENTAL.
 - State at end of day: DEV pipeline complete from Bronze to weekly/monthly aggregates; aggregates suspended; PII masking active; all code on `dev` in GitHub.
+
+## 2026-11-15 – Sales cube
+- User asked for a cube only (no semantic view). `gold/V3.8.0` CUBE_SALES: dynamic table from FACT_SALES_LINE + DIM_DATE / DIM_COUNTRY / DIM_PRODUCT / DIM_CUSTOMER with all hierarchy levels pre-computed: time (ALL, calendar year > quarter > month, fiscal year > quarter), region > country, channel, category > family, customer segment; currency always grouped. *_LEVEL columns identify each cell's level.
+- 216 grouping sets exceed Snowflake's limit of 128 per GROUP BY, so the cube is 6 UNION ALL branches (one per time level, 36 groupings each); the script generates them with a Jinja loop.
+- REFRESH_MODE FULL (ROLLUP/GROUPING SETS not incremental), lag 24 hours, created populated then suspended; owner SYSADMIN.
+- Verified: 358,823 cells, 358,823 unique CUBE_SK, 216 groupings, 27 currencies; grand totals per currency equal the line fact for net, lines, distinct transactions and customers.

@@ -32,9 +32,10 @@ CSV files -> stage -> BRONZE (13 tables, COPY)
           -> GOLD dims: DIM_COUNTRY, DIM_PRODUCT, DIM_PRODUCT_COUNTRY, DIM_STORE, DIM_CUSTOMER (SCD2 dynamic tables)
                         DIM_DATE, DIM_TIME (fixed tables)
           -> GOLD facts: FACT_SALES_LINE -> FACT_SALES_DAILY -> FACT_SALES_WEEKLY / FACT_SALES_MONTHLY
+                        FACT_SALES_LINE + dims -> CUBE_SALES (all hierarchy levels pre-computed)
 ```
 
-- All Silver/Gold dynamic tables refresh INCREMENTAL with `TARGET_LAG = DOWNSTREAM`; only the three aggregates have a time lag (`'24 hours'`) and they are **suspended** until the load is scheduled.
+- All Silver/Gold dynamic tables refresh INCREMENTAL with `TARGET_LAG = DOWNSTREAM`; only the three aggregates and the cube have a time lag (`'24 hours'`) and they are **suspended** until the load is scheduled.
 - Customer PII is masked by tag-based policies in `GOVERNANCE` (see "PII protection").
 - Current state: DEV only, 2019 data. Next: semantic view, incremental COPY task, data metric functions.
 
@@ -91,7 +92,8 @@ datamigrations/
         ├── V3.7.0__set_fact_sales_daily_lag_24h.sql
         ├── V3.7.1__create_gold_fact_sales_weekly.sql
         ├── V3.7.2__create_gold_fact_sales_monthly.sql
-        └── V3.7.3__suspend_fact_sales_daily.sql
+        ├── V3.7.3__suspend_fact_sales_daily.sql
+        └── V3.8.0__create_gold_cube_sales.sql
 ```
 
 - File names follow `V<version>__<description>.sql`; scripts run once, in version order.
@@ -242,6 +244,32 @@ Transient dynamic tables, `REFRESH_MODE = INCREMENTAL`, `TARGET_LAG = DOWNSTREAM
 - Weekly and monthly roll up from `FACT_SALES_DAILY` (not the line fact) and join `DIM_DATE` for `WEEK_START_DATE_SK` / `MONTH_START_DATE_SK` (YYYYMMDD of the Monday / 1st), so lineage is line -> daily -> weekly/monthly and DIM_DATE -> weekly/monthly. `TRANSACTION_COUNT` is summed from daily counts (exact per row; summing over products double counts multi-product transactions). Apple fiscal quarters do not align with calendar months - report fiscal periods from the daily aggregate + `DIM_DATE.FISCAL_*`. Distinct customers are not stored (not additive) - use the line fact.
 - Lineage (`GET_LINEAGE` / Snowsight graph): `SILVER.SALES_HEADER`, `SILVER.SALES_ITEM`, `DIM_DATE`, `DIM_TIME` and the 5 SCD2 dims -> `FACT_SALES_LINE` -> `FACT_SALES_DAILY`.
 - Checks (2019): every line found all dimensions (0 DQ warnings); net amount 50,186,627.97 and quantity 92,025 reconcile Silver = line fact = daily aggregate.
+
+## Sales cube (`GOLD.CUBE_SALES`, `V3.8.0`)
+
+Physical OLAP-style cube: a dynamic table with every combination of hierarchy levels pre-computed, per currency.
+
+| Hierarchy | Levels (`*_LEVEL` value) |
+|---|---|
+| Time | `ALL`, `CALENDAR_YEAR` > `CALENDAR_QUARTER` > `CALENDAR_MONTH`, or `FISCAL_YEAR` > `FISCAL_QUARTER` (Apple; calendar and fiscal are never mixed in a row) |
+| Geography | `ALL` > `REGION` > `COUNTRY` |
+| Channel | `ALL` > `CHANNEL` (POS / ONLINE) |
+| Product | `ALL` > `CATEGORY` > `FAMILY` |
+| Customer | `ALL` > `SEGMENT` |
+| Currency | always grouped (local currency, no FX yet) |
+
+- 6 x 3 x 2 x 3 x 2 = 216 groupings per currency; 358,823 cells for 2019 (27 currencies).
+- Measures: line count, exact distinct transaction and customer counts per cell, quantity, gross, discount, net before tax, tax, net, and per-cell ratios (average order value, discount %, units per transaction). Counts and ratios are not additive across cells - read the cell at the level you need.
+- Query by fixing every level column, e.g. fiscal quarter by product category for USD:
+  ```sql
+  SELECT FISCAL_YEAR_QUARTER, CATEGORY_NAME, NET_AMOUNT, TRANSACTION_COUNT, AVG_ORDER_VALUE
+  FROM SALES_DEV.GOLD.CUBE_SALES
+  WHERE CURRENCY_CODE = 'USD' AND TIME_LEVEL = 'FISCAL_QUARTER' AND GEO_LEVEL = 'ALL'
+    AND CHANNEL_LEVEL = 'ALL' AND PRODUCT_LEVEL = 'CATEGORY' AND CUSTOMER_LEVEL = 'ALL';
+  ```
+- Attributes are as at the sale date (the SCD2 version stored on the line fact).
+- `REFRESH_MODE = FULL` (GROUPING SETS / ROLLUP cannot refresh incrementally), `TARGET_LAG = '24 hours'` (var `cube_lag`), created populated and **suspended**. Snowflake allows at most 128 grouping sets per GROUP BY, so the script builds one UNION ALL branch (36 groupings) per time level with a Jinja loop.
+- Verified: unique `CUBE_SK`; grand total per currency equals `FACT_SALES_LINE` for net amount, lines, distinct transactions and distinct customers (27/27).
 
 ## PII protection (tag-based masking)
 
