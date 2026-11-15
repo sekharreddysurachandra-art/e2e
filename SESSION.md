@@ -140,3 +140,20 @@
 - Verified in DEV: all Silver DTs and DIM_COUNTRY INCREMENTAL / ACTIVE / SYSADMIN; row counts unchanged (one version per key in 2019); `SILVER_SK` unique in every table; DIM_COUNTRY 71 rows, 71 SKs, 35 current. Rule tested on sample rows: re-send dropped, change and change-back kept, end-date closure keeps the new end date.
 - Deployed by pasting rendered SQL (stage upload blocked by MFA); run `ALTER DYNAMIC TABLE ... REFRESH` after `CREATE OR ALTER` because DOWNSTREAM lag does not trigger the reinit.
 - DMF plan renumbered to `V2.10.0`.
+
+## 2026-11-15 – Gold product, store and customer dimensions
+- `DIM_COUNTRY` refresh mode question: it is INCREMENTAL; the one REINITIALIZE in its history came from the `V3.0.1` CREATE OR ALTER (query change), later refreshes are incremental ("No new data").
+- Created (transient, INCREMENTAL, DOWNSTREAM, owner SYSADMIN): `DIM_PRODUCT` (`V3.1.0`, SKU + model + family + category, interval logic as DIM_COUNTRY, merged unchanged segments), `DIM_PRODUCT_COUNTRY` (`V3.1.1`), `DIM_STORE` (`V3.2.0`), `DIM_CUSTOMER` (`V3.3.0`).
+- Decisions taken by default (user did not answer): 2 product dims; full Type 2 on customer; first version back-dated to 1900-01-01; dims stay DOWNSTREAM.
+- Verified: one row per key, SKs unique, one current version per key, 0 DQ warnings; every 2019 sales line (77,155; 61,804 with a store) matches each dim on TRANSACTION_DATE.
+- Not tested with real changes yet (2019 has one version per key); the multi-version path is covered by the same logic as DIM_COUNTRY and the Silver rule test.
+- Open: customer hybrid Type 1/2? fact/aggregate target lag; masking policies on DIM_CUSTOMER PII.
+
+## 2026-11-15 – Date and time dimensions, local sales date
+- Sales header check: only the 2019 file is loaded; 24 rows are dated 2020-01-01 (00:09-02:55, US/CA/MX). The hour-of-day pattern per country shows the timestamps are UTC, so these are 31 Dec 2019 local sales. Local years: 2018 = 1, 2019 = 77,143, 2020 = 11.
+- `silver/V2.9.12`: SALES_HEADER adds TIMEZONE, TRANSACTION_TIMESTAMP_LOCAL, TRANSACTION_DATE_LOCAL (CREATE OR ALTER, still INCREMENTAL); DQ check TIMEZONE_UNKNOWN (0 rows).
+- `gold/V3.4.0` DIM_DATE: fixed 2015-01-01..2044-12-31 + unknown -1 (10,959 rows), DATE_SK YYYYMMDD, calendar + Apple fiscal columns; fiscal year-ends match Apple FY2019-FY2024.
+- `gold/V3.4.1` DIM_TIME: 1,440 minutes + unknown -1, TIME_SK HHMM, hour/AM-PM/quarter-hour/day part.
+- Both are regular transient tables (generated data cannot be a dynamic table) with CHANGE_TRACKING and PK constraints; FISCAL_YEAR_QUARTER widened to VARCHAR(9) during the load ('FY2015-Q2' is 9 characters).
+- Check: every sales header matches DIM_DATE and DIM_TIME on local date/time (FY2019 49,358, FY2020 27,797).
+- Next: Gold fact dynamic tables (join dims for SKs and lineage) with a real target lag; holidays not included (no source).

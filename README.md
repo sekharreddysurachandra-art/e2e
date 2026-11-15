@@ -57,10 +57,17 @@ datamigrations/
         ├── V2.8.0__create_silver_sales_header.sql
         ├── V2.8.1__create_silver_sales_item.sql
         ├── V2.9.0__grant_bronze_select_to_sysadmin.sql
-        └── V2.9.1 … V2.9.11__scd_history_silver_<table>.sql   # masters keep change history
+        ├── V2.9.1 … V2.9.11__scd_history_silver_<table>.sql   # masters keep change history
+        └── V2.9.12__add_local_date_silver_sales_header.sql
     └── gold/                                     # Silver -> Gold dynamic tables
         ├── V3.0.0__create_gold_dim_country.sql
-        └── V3.0.1__evolve_gold_dim_country_for_versioned_silver.sql
+        ├── V3.0.1__evolve_gold_dim_country_for_versioned_silver.sql
+        ├── V3.1.0__create_gold_dim_product.sql
+        ├── V3.1.1__create_gold_dim_product_country.sql
+        ├── V3.2.0__create_gold_dim_store.sql
+        ├── V3.3.0__create_gold_dim_customer.sql
+        ├── V3.4.0__create_gold_dim_date.sql
+        └── V3.4.1__create_gold_dim_time.sql
 ```
 
 - File names follow `V<version>__<description>.sql`; scripts run once, in version order.
@@ -176,3 +183,32 @@ These folders stay on your machine and are excluded by `.gitignore`:
 - `__financial_reports/` – financial report PDFs
 
 All `*.csv` files are also ignored in every folder.
+
+## Gold dimensions (`SALES_DEV.GOLD`)
+
+Transient dynamic tables, `REFRESH_MODE = INCREMENTAL`, `TARGET_LAG = DOWNSTREAM`, owner `SYSADMIN`. All SCD Type 2: hash surrogate key `MD5(business key|EFFECTIVE_START_DATE)`, inclusive end dates (9999-12-31 = open), `IS_CURRENT`, `RECORD_HASH`, `DQ_STATUS`/`DQ_ISSUES`. Dynamic tables reject PRIMARY KEY/UNIQUE, so key and SCD columns are NOT NULL and each script ends with a uniqueness check query.
+
+| Script | Table | Grain | Sources | Rows |
+|---|---|---|---|---|
+| `V3.0.0`/`V3.0.1` | `DIM_COUNTRY` | country version | country + region + currency + tax | 71 |
+| `V3.1.0` | `DIM_PRODUCT` | SKU version | SKU + model + family + category (hierarchy flattened) | 650 |
+| `V3.1.1` | `DIM_PRODUCT_COUNTRY` | SKU x country version | product country availability | 22,750 |
+| `V3.2.0` | `DIM_STORE` | store version | store master | 121 |
+| `V3.3.0` | `DIM_CUSTOMER` | customer version | customer master (PII - masking still to do) | 31,350 |
+| `V3.4.0` | `DIM_DATE` | calendar day 2015-01-01 .. 2044-12-31 + unknown (-1) | generated (regular table) | 10,959 |
+| `V3.4.1` | `DIM_TIME` | minute of day + unknown (-1) | generated (regular table) | 1,441 |
+
+- Product data is two dimensions, not one or five: category -> family -> model -> SKU is a strict hierarchy, so it is flattened onto the SKU; availability has a different grain (SKU x country) and is its own dimension.
+- A combined dimension (`DIM_COUNTRY`, `DIM_PRODUCT`) starts a new version when any of its sources changes, using equality joins + `QUALIFY` so incremental refresh is kept; unchanged neighbouring segments are merged.
+- Version dates: source effective dates where they exist (country, region, currency, tax, category, store); otherwise the day the version arrived (`VERSION_START_TS`; customer `UPDATED_AT`), one version per key per day.
+- The first version of each key in the new dims starts `1900-01-01`, because the sources' first dates (2026) are later than the 2019 sales. Store keeps the source date in `SOURCE_EFFECTIVE_START_DATE`, undated dims in `SOURCE_VERSION_TS`. `DIM_COUNTRY` is not back-dated (its data starts in 1997).
+- Store and customer keep `COUNTRY_CODE`/`REGION_CODE` as codes and join `DIM_COUNTRY` instead of copying its attributes, so a tax or currency change does not create store/customer versions.
+- 2019 coverage check: every sales line finds one valid row in each dimension on its transaction date.
+
+### Date and time dimensions
+- `DIM_DATE` and `DIM_TIME` are regular (DEV/QA transient) tables loaded once: a generated calendar cannot be a dynamic table (`SEQ4`/`GENERATOR` are not change-trackable). Both have `CHANGE_TRACKING = TRUE` and declared PRIMARY KEY constraints (allowed on regular tables, not enforced by Snowflake).
+- Fixed range instead of sales min/max: every day exists (also days without sales), fiscal years are complete, late/back-dated sales already have a row, and DEV/QA/PROD are identical. Extend the range with a new script.
+- Keys: `DATE_SK` = YYYYMMDD, `TIME_SK` = HHMM; `-1` = unknown member so facts never drop rows.
+- Apple fiscal calendar: the year ends on the last Saturday of September (52/53 weeks), 13-week quarters, Q1 = 14 weeks in 53-week years. Checked: FY2019 ends 2019-09-28, FY2020 2020-09-26, FY2022 2022-09-24, FY2023 2023-09-30 (53 weeks, Q1 ends 2022-12-31).
+- Sales timestamps are UTC (inferred from the hour-of-day pattern per country; the source has no timezone). `V2.9.12` adds `TIMEZONE`, `TRANSACTION_TIMESTAMP_LOCAL` and `TRANSACTION_DATE_LOCAL` to Silver `SALES_HEADER`; facts join `DIM_DATE` / `DIM_TIME` on the local date and time. `TRANSACTION_DATE` stays the UTC date.
+- Lineage: fact dynamic tables join `DIM_DATE`/`DIM_TIME` and store `DATE_SK`/`TIME_SK`, so the dates appear upstream of the facts in the dynamic table graph and `GET_LINEAGE`.
