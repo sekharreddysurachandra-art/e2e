@@ -82,7 +82,7 @@ For multi-file tables run `INFER_SCHEMA` over the whole folder, not one file (si
 - Metadata column is `__FILE_LAST_MODIFIED_NTZ`, but the rules require `__load_timestamp` – confirm with the user before changing.
 - Only `COUNTRY_MASTER` (and other country tables) have column comments; the 9 tables created on 2026-11-15 do not.
 - `SALES_HEADER` and `SALES_ITEM` have identical row counts – verify grain.
-- Bronze table DDL and COPY scripts are not yet in `ddl/` or `datamigrations/`.
-- `CSV_FF` not yet in `datamigrations/`; no `schemachange-config.yml`.
+- Bronze DDL and loads are in `datamigrations/02_sales_db/` (`V2.0.2` file format, `V2.2.0`/`V2.2.1` tables, `V2.3.0` 2019 COPY). Upload files to a stage before deploying `V2.3.0` there.
+- No `schemachange-config.yml`.
 - Chargeback tag not defined or applied.
 - Not started: Silver/Gold dynamic tables, semantic view, incremental load task, masking policies, data quality checks.

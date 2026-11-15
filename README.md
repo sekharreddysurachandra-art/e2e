@@ -37,11 +37,17 @@ datamigrations/
 └── 02_sales_db/
     ├── V2.0.0__create_sales_database.sql
     ├── V2.0.1__create_sales_schemas.sql
-    └── V2.1.0__tag_sales_database_and_schemas.sql
+    ├── V2.0.2__create_common_file_formats.sql
+    ├── V2.1.0__tag_sales_database_and_schemas.sql
+    ├── V2.2.0__create_bronze_master_tables.sql
+    ├── V2.2.1__create_bronze_sales_tables.sql
+    └── V2.3.0__load_bronze_initial_2019.sql
 ```
 
 - File names follow `V<version>__<description>.sql`; scripts run once, in version order.
 - `V1.x` = governance, `V2.x` = sales database. Never edit a script after it has run – add a new version instead.
+- `V2.0.x` database objects, `V2.1.x` tags, `V2.2.x` Bronze tables, `V2.3.x` Bronze loads.
+- `V2.3.0` runs `COPY INTO`, so upload the files to the environment's stage before deploying it (otherwise it loads 0 files).
 
 Deploy (replace `QA` with `DEV` or `PROD`):
 
@@ -71,8 +77,24 @@ The `snow stage copy` commands are kept as comments in `ddl/01_databases_schemas
 | `customer-master/2019/<country_code>/` | 35 | 35 files listed; no other years on stage |
 | `sales-transaction/2019/` | 2 | Listed and registered in directory table |
 
-Total: 49 files. Not uploaded yet: customer-master and sales-transaction 2020–2025.
-No tables have been loaded yet (`COPY INTO` is the next step).
+Total: 47 files (2019 only). Scope is 2019 – 2020–2025 files are not uploaded.
+
+## Bronze layer (`SALES_DEV.BRONZE`)
+
+13 transient tables, each with `__FILE_NAME`, `__ROW_NUMBER` and `__FILE_LAST_MODIFIED_NTZ` filled by `COPY ... INCLUDE_METADATA`.
+Columns come from `INFER_SCHEMA` and are fixed in `V2.2.0`/`V2.2.1`; loads are in `V2.3.0`.
+
+| Table | Rows (2019) | Table | Rows (2019) |
+|---|---|---|---|
+| `REGION_MASTER` | 5 | `PRODUCT_SKU_MASTER` | 650 |
+| `CURRENCY_MASTER` | 27 | `PRODUCT_COUNTRY_AVAILABILITY` | 22,750 |
+| `TAX_MASTER` | 35 | `STORE_MASTER` | 121 |
+| `COUNTRY_MASTER` | 35 | `CUSTOMER_MASTER` | 31,350 |
+| `PRODUCT_CATEGORY_MASTER` | 10 | `SALES_HEADER` | 77,155 |
+| `PRODUCT_FAMILY_MASTER` | 43 | `SALES_ITEM` | 77,155 |
+| `PRODUCT_MODEL_MASTER` | 111 | | |
+
+See `agent.md` for a summary of rules, current state and open items for new sessions.
 
 ## Local-only folders (not in Git)
 

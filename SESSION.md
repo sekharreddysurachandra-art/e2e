@@ -59,3 +59,30 @@
 - OAuth connection `PD77583` fails `snow stage copy` with S3 HTTP 400 – re-authenticate or keep using `PD77583_SNOW`.
 - Upload customer-master and sales-transaction 2020–2025.
 - Create Bronze tables (`INFER_SCHEMA`) and run `COPY INTO`.
+
+## Session 3 – 2026-11-15
+
+### Bronze tables and 2019 load
+- Country tables (`COUNTRY_MASTER`, `CURRENCY_MASTER`, `REGION_MASTER`, `TAX_MASTER`) already existed and were loaded.
+- Created 9 transient tables in `SALES_DEV.BRONZE` with `INFER_SCHEMA` and loaded them with `COPY INTO` (`MATCH_BY_COLUMN_NAME`, `INCLUDE_METADATA`, `ON_ERROR = ABORT_STATEMENT`):
+  `PRODUCT_CATEGORY_MASTER` 10, `PRODUCT_COUNTRY_AVAILABILITY` 22,750, `PRODUCT_FAMILY_MASTER` 43, `PRODUCT_MODEL_MASTER` 111, `PRODUCT_SKU_MASTER` 650, `STORE_MASTER` 121, `CUSTOMER_MASTER` 31,350 (35 files), `SALES_HEADER` 77,155, `SALES_ITEM` 77,155.
+- `CUSTOMER_MASTER` was first inferred from the US file only; `POSTAL_CODE` became numeric and the BR file failed. Recreated (empty) with `INFER_SCHEMA` over all country files – `POSTAL_CODE` is now `VARCHAR`.
+- Verified all 13 bronze tables have the 3 metadata columns and no NULLs in them.
+- Scope decided: **2019 only**. A 2020–2025 upload was attempted, failed for every file and was stopped; nothing reached the stage.
+
+### Code in repo
+- `agent.md` – context file for new sessions (rules, current state, open items).
+- New schemachange scripts in `datamigrations/02_sales_db/`:
+  - `V2.0.2__create_common_file_formats.sql` – `COMMON.CSV_FF` (closes Session 1 open item)
+  - `V2.2.0__create_bronze_master_tables.sql` – 11 master tables (country, product, store, customer)
+  - `V2.2.1__create_bronze_sales_tables.sql` – `SALES_HEADER`, `SALES_ITEM`
+  - `V2.3.0__load_bronze_initial_2019.sql` – `COPY INTO` for all 13 tables from 2019 files
+- Bronze DDL uses fixed column lists (from `INFER_SCHEMA` in DEV) so QA/PROD get the same structure before files exist on their stage.
+
+### Open items
+- DEV objects were created by hand; on the next DEV deploy schemachange will run V2.2.x/V2.3.0 as no-ops (`IF NOT EXISTS`, COPY skips loaded files). `V2.0.2` is lower than the applied `V2.1.0`, so schemachange skips it in DEV (object already exists); QA/PROD run it in order.
+- Metadata column is `__FILE_LAST_MODIFIED_NTZ`; the architecture rule names `__load_timestamp` – confirm.
+- New tables have no column comments (only the 4 country tables do).
+- `SALES_HEADER` and `SALES_ITEM` have identical row counts – verify grain.
+- QA/PROD stages are empty; upload files before deploying `V2.3.0` there.
+- Next: Silver dynamic tables (incremental, `TARGET_LAG = DOWNSTREAM`).
