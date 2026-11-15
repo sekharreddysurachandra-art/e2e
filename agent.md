@@ -107,4 +107,10 @@ For multi-file tables run `INFER_SCHEMA` over the whole folder, not one file (si
 - New objects are created as ACCOUNTADMIN by the SQL tool (USE ROLE does not persist) - transfer ownership to SYSADMIN afterwards.
 - `snow sql` with `PD77583`/`PD77583_SNOW` fails (OAuth client_id / MFA); deploy via the active SQL connection.
 - Silver DMFs proposed (see README "Planned: Snowflake data metric functions"), not attached: `DUPLICATE_COUNT`, `REFERENTIAL_INTEGRITY_COUNT`, `SOURCE_TARGET_LAG` (not `FRESHNESS` – no TIMESTAMP_NTZ support), `ROW_COUNT_DIFFERENCE`, `ROW_COUNT` + anomaly detection, `ACCEPTED_VALUES` on `DQ_STATUS`, `SCHEMA_CHANGE_COUNT`. Get approval before attaching; planned script `silver/V2.9.0__attach_silver_dmfs.sql`.
-- Not started: Gold dynamic tables, semantic view, incremental load task, masking policies, data quality checks.
+- Gold `SALES_DEV.GOLD.DIM_COUNTRY` (`datamigrations/02_sales_db/gold/V3.0.0__create_gold_dim_country.sql`): SCD2 dim combining Silver COUNTRY + REGION + CURRENCY + TAX masters; owner SYSADMIN, INCREMENTAL, `TARGET_LAG = DOWNSTREAM`; 71 versions / 35 countries / 35 current.
+  - Key `COUNTRY_SK = MD5(COUNTRY_CODE|EFFECTIVE_START_DATE)`; new version whenever country, region, currency or tax version changes (inclusive end dates).
+  - Dynamic tables reject PRIMARY KEY/UNIQUE constraints and need typed columns for NOT NULL; uniqueness is checked by the query at the end of the script.
+  - Incremental DTs reject outer joins with range predicates: lookups join on code and pick the valid version with QUALIFY.
+  - Silver TAX_MASTER starts 2020-01-01, so every country's 2019-and-earlier versions have no tax (DQ `TAX_NOT_FOUND_FOR_PERIOD`, 36 WARN rows); 2019 sales will join a tax-less version - confirm with the user whether tax dates are correct.
+  - Silver country DTs failed refresh because Bronze tables are owned by ACCOUNTADMIN; granted SELECT on the 4 Bronze country tables to SYSADMIN (other Bronze tables likely need the same).
+- Not started: other Gold dims and facts, semantic view, incremental load task, masking policies, data quality checks.

@@ -123,3 +123,11 @@
 - Proposed set documented in `README.md` (Silver layer → Planned DMFs). Nothing attached yet.
 - Open: confirm thresholds (lag limit), DMF privileges for `SYSADMIN`, notification integration; then create `V2.9.0__attach_silver_dmfs.sql`.
 
+
+## 2026-11-15 – Gold DIM_COUNTRY (SCD2)
+- Created `SALES_DEV.GOLD.DIM_COUNTRY` (transient DT, INCREMENTAL, `TARGET_LAG = DOWNSTREAM`, owner SYSADMIN) from Silver country, region, currency and tax masters; script `datamigrations/02_sales_db/gold/V3.0.0__create_gold_dim_country.sql`.
+- SCD2: version boundaries are the union of all four sources' start / end+1 dates within each country version; `COUNTRY_SK` = MD5(COUNTRY_CODE|EFFECTIVE_START_DATE); `IS_CURRENT`, `RECORD_HASH`, `DQ_STATUS`/`DQ_ISSUES`.
+- Result: 71 rows, 71 distinct SKs, 35 countries, 35 current rows; 36 WARN rows (periods before the region/currency start 2000-01-01 and tax start 2020-01-01).
+- PK/UNIQUE constraints are not supported on dynamic tables; NOT NULL declared on keys, uniqueness check query in the script.
+- Granted SELECT on `SALES_DEV.BRONZE.{COUNTRY,REGION,CURRENCY,TAX}_MASTER` to SYSADMIN (Silver DTs could not refresh).
+- Open: confirm tax effective dates (2019 sales would get no tax data); grant SYSADMIN on remaining Bronze tables.
