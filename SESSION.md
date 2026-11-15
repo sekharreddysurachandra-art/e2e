@@ -177,3 +177,8 @@
 - `gold/V3.7.3`: FACT_SALES_DAILY suspended last (after weekly/monthly took their initial data).
 - Verified: net 50,186,627.97 and 77,155 lines equal in daily, weekly (49,196 rows, 53 weeks) and monthly (33,310 rows, 14 months incl. Dec 2018 / Jan 2020 local-date edges); unique SKs; all three SUSPENDED, lag 1 day, owner SYSADMIN.
 - Suggestions given: semantic view over daily + DIM_DATE instead of more physical rollups; Apple fiscal week/quarter aggregate if finance needs it; FX before cross-country totals.
+
+## 2026-11-15 – Documentation refresh
+- README: added "Pipeline overview" (layers, refresh model, current state); moved "Local-only folders" to the end so Bronze -> Silver -> Gold -> PII sections read in order.
+- agent.md: added "Pipeline status (summary)" for new sessions; removed the outdated "fact lag not decided" note; facts line now says all facts INCREMENTAL.
+- State at end of day: DEV pipeline complete from Bronze to weekly/monthly aggregates; aggregates suspended; PII masking active; all code on `dev` in GitHub.

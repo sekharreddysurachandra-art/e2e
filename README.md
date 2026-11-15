@@ -24,6 +24,20 @@ Changes flow `dev` → `qa` → `main`.
 Each sales database has `BRONZE`, `SILVER`, `GOLD` and `COMMON` schemas (medallion architecture).
 All objects are owned by `SYSADMIN` and tagged with `GOVERNANCE.TAGS.ENVIRONMENT`.
 
+## Pipeline overview
+
+```
+CSV files -> stage -> BRONZE (13 tables, COPY)
+          -> SILVER (13 dynamic tables: cleaned, DQ-checked; masters keep change history)
+          -> GOLD dims: DIM_COUNTRY, DIM_PRODUCT, DIM_PRODUCT_COUNTRY, DIM_STORE, DIM_CUSTOMER (SCD2 dynamic tables)
+                        DIM_DATE, DIM_TIME (fixed tables)
+          -> GOLD facts: FACT_SALES_LINE -> FACT_SALES_DAILY -> FACT_SALES_WEEKLY / FACT_SALES_MONTHLY
+```
+
+- All Silver/Gold dynamic tables refresh INCREMENTAL with `TARGET_LAG = DOWNSTREAM`; only the three aggregates have a time lag (`'24 hours'`) and they are **suspended** until the load is scheduled.
+- Customer PII is masked by tag-based policies in `GOVERNANCE` (see "PII protection").
+- Current state: DEV only, 2019 data. Next: semantic view, incremental COPY task, data metric functions.
+
 ## Database migrations (`datamigrations/`)
 
 DDL is managed with [schemachange](https://github.com/Snowflake-Labs/schemachange). The same scripts deploy to every environment through the `env` variable.
@@ -184,16 +198,6 @@ The `DQ_STATUS` / `DQ_ISSUES` columns check one row at a time. DMFs add table-le
 
 See `agent.md` for a summary of rules, current state and open items for new sessions.
 
-## Local-only folders (not in Git)
-
-These folders stay on your machine and are excluded by `.gitignore`:
-
-- `__initial_load/` – source CSV files (country, customer, product, store, sales transactions)
-- `__architectural_notes/` – architecture diagrams
-- `__financial_reports/` – financial report PDFs
-
-All `*.csv` files are also ignored in every folder.
-
 ## Gold dimensions (`SALES_DEV.GOLD`)
 
 Transient dynamic tables, `REFRESH_MODE = INCREMENTAL`, `TARGET_LAG = DOWNSTREAM`, owner `SYSADMIN`. All SCD Type 2: hash surrogate key `MD5(business key|EFFECTIVE_START_DATE)`, inclusive end dates (9999-12-31 = open), `IS_CURRENT`, `RECORD_HASH`, `DQ_STATUS`/`DQ_ISSUES`. Dynamic tables reject PRIMARY KEY/UNIQUE, so key and SCD columns are NOT NULL and each script ends with a uniqueness check query.
@@ -254,3 +258,13 @@ Transient dynamic tables, `REFRESH_MODE = INCREMENTAL`, `TARGET_LAG = DOWNSTREAM
 - Policies use `IS_ROLE_IN_SESSION('PII_READER')` (constant, respects role hierarchy) - all dynamic tables stay INCREMENTAL. Tagging base columns reinitialised Silver CUSTOMER_MASTER, DIM_CUSTOMER and FACT_SALES_LINE once.
 - Verified in DEV with a temporary role without PII_READER (masked in all three layers) and SYSADMIN (clear); Silver stores clear values, 0 DQ warnings.
 - `CREATE MASKING POLICY` cannot run inside a `BEGIN ... END` block - keep each statement separate.
+
+## Local-only folders (not in Git)
+
+These folders stay on your machine and are excluded by `.gitignore`:
+
+- `__initial_load/` – source CSV files (country, customer, product, store, sales transactions)
+- `__architectural_notes/` – architecture diagrams
+- `__financial_reports/` – financial report PDFs
+
+All `*.csv` files are also ignored in every folder.
