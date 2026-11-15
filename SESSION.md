@@ -170,3 +170,10 @@
 - Verified: temporary role without PII_READER sees masked values in all three layers; SYSADMIN sees clear values; Silver stores clear values (0 masked, 0 WARN); all 20 dynamic tables INCREMENTAL after one reinit of the customer chain. Test role dropped; tag and policies owned by SYSADMIN.
 - Scripts: 01_governance/V1.2.0-V1.2.2, 02_sales_db/V3.6.0.
 - Open: SYSADMIN/ACCOUNTADMIN users see PII (separate pipeline role later); grant PII_READER only on business need; consider auto-classification for new columns.
+
+## 2026-11-15 – Weekly and monthly aggregates
+- `gold/V3.7.0`: FACT_SALES_DAILY TARGET_LAG '1 hour' -> '24 hours' (no reinit).
+- `gold/V3.7.1` FACT_SALES_WEEKLY (ISO week, Mon-Sun) and `gold/V3.7.2` FACT_SALES_MONTHLY (calendar month): dynamic tables rolled up from FACT_SALES_DAILY joined to DIM_DATE; same members as daily; lag '24 hours'; INCREMENTAL; created populated then suspended.
+- `gold/V3.7.3`: FACT_SALES_DAILY suspended last (after weekly/monthly took their initial data).
+- Verified: net 50,186,627.97 and 77,155 lines equal in daily, weekly (49,196 rows, 53 weeks) and monthly (33,310 rows, 14 months incl. Dec 2018 / Jan 2020 local-date edges); unique SKs; all three SUSPENDED, lag 1 day, owner SYSADMIN.
+- Suggestions given: semantic view over daily + DIM_DATE instead of more physical rollups; Apple fiscal week/quarter aggregate if finance needs it; FX before cross-country totals.
