@@ -85,6 +85,26 @@ For multi-file tables run `INFER_SCHEMA` over the whole folder, not one file (si
 - Bronze DDL and loads are in `datamigrations/02_sales_db/` (`V2.0.2` file format, `V2.2.0`/`V2.2.1` tables, `V2.3.0` 2019 COPY). Upload files to a stage before deploying `V2.3.0` there.
 - No `schemachange-config.yml`.
 - Chargeback tag not defined or applied.
-- Silver dynamic tables (`V2.4.0`-`V2.4.3`, owner SYSADMIN, INCREMENTAL, `TARGET_LAG = DOWNSTREAM`): `REGION_MASTER` (5), `CURRENCY_MASTER` (27), `TAX_MASTER` (35), `COUNTRY_MASTER` (35). Pattern: dedup on business key + `EFFECTIVE_START_DATE` (latest file/row wins), trim/upper codes, `IS_CURRENT`, `RECORD_HASH`, `DQ_STATUS`/`DQ_ISSUES`, 3 Bronze metadata columns; no `__SILVER_LOADED_AT`. Warehouse via schemachange var `warehouse` (default `COMPUTE_WH`; SYSADMIN granted USAGE).
+- Silver dynamic tables in `SALES_DEV.SILVER` (all owner SYSADMIN, INCREMENTAL, `TARGET_LAG = DOWNSTREAM`, Silver rows = Bronze rows, 0 DQ warnings):
+
+| Script | Table | Key | Rows |
+|---|---|---|---|
+| `V2.4.0` | `REGION_MASTER` | REGION_CODE + EFFECTIVE_START_DATE | 5 |
+| `V2.4.1` | `CURRENCY_MASTER` | CURRENCY_CODE + EFFECTIVE_START_DATE | 27 |
+| `V2.4.2` | `TAX_MASTER` | TAX_CODE + EFFECTIVE_START_DATE | 35 |
+| `V2.4.3` | `COUNTRY_MASTER` | COUNTRY_CODE + EFFECTIVE_START_DATE | 35 |
+| `V2.5.0` | `PRODUCT_CATEGORY_MASTER` | CATEGORY_CODE + EFFECTIVE_START_DATE | 10 |
+| `V2.5.1` | `PRODUCT_FAMILY_MASTER` | FAMILY_CODE | 43 |
+| `V2.5.2` | `PRODUCT_MODEL_MASTER` | MODEL_CODE | 111 |
+| `V2.5.3` | `PRODUCT_SKU_MASTER` | SKU_CODE | 650 |
+| `V2.5.4` | `PRODUCT_COUNTRY_AVAILABILITY` | SKU_CODE + COUNTRY_CODE | 22,750 |
+| `V2.6.0` | `CUSTOMER_MASTER` | CUSTOMER_ID (latest UPDATED_AT wins) | 31,350 |
+| `V2.7.0` | `STORE_MASTER` | STORE_CODE + EFFECTIVE_START_DATE | 121 |
+| `V2.8.0` | `SALES_HEADER` | TRANSACTION_SK | 77,155 |
+| `V2.8.1` | `SALES_ITEM` | TRANSACTION_LINE_ID | 77,155 |
+
+  Pattern: dedup on business key (latest file/row wins), trim/upper codes, text dates cast with TRY_TO_DATE, `RECORD_HASH`, `DQ_STATUS`/`DQ_ISSUES`, 3 Bronze metadata columns; no `__SILVER_LOADED_AT`. Extras: `IS_CURRENT` (SCD2 tables), `IS_OPEN` (store), `EMAIL_DOMAIN` (customer), `TAX_RATE_PCT`, `TRANSACTION_DATE`, `GROSS_LINE_AMOUNT`. Renamed: customer `REGION` -> `REGION_CODE`, header `CURRENCY` -> `CURRENCY_CODE`. Warehouse via schemachange var `warehouse` (default `COMPUTE_WH`; SYSADMIN granted USAGE).
+- Data facts: e-mail is not unique in CUSTOMER_MASTER (1,244 shared by different people - do not dedup on it); ONLINE orders have NULL STORE_ID; 24 headers in the 2019 file are dated 2020-01-01; header NET_TOTAL = sum of item LINE_TOTAL; 1 item line per transaction in 2019.
+- New objects are created as ACCOUNTADMIN by the SQL tool (USE ROLE does not persist) - transfer ownership to SYSADMIN afterwards.
 - `snow sql` with `PD77583`/`PD77583_SNOW` fails (OAuth client_id / MFA); deploy via the active SQL connection.
-- Not started: Silver for product/store/customer/sales, Gold dynamic tables, semantic view, incremental load task, masking policies, data quality checks.
+- Not started: Gold dynamic tables, semantic view, incremental load task, masking policies, data quality checks.
