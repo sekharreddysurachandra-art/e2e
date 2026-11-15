@@ -33,7 +33,10 @@ datamigrations/
 ├── 01_governance/
 │   ├── V1.0.0__create_governance_database.sql
 │   ├── V1.0.1__create_governance_schemas.sql
-│   └── V1.1.0__create_governance_tags.sql
+│   ├── V1.1.0__create_governance_tags.sql
+│   ├── V1.2.0__create_pii_reader_role.sql
+│   ├── V1.2.1__create_pii_type_tag.sql
+│   └── V1.2.2__create_pii_masking_policies.sql
 └── 02_sales_db/
     ├── V2.0.0__create_sales_database.sql
     ├── V2.0.1__create_sales_schemas.sql
@@ -42,6 +45,7 @@ datamigrations/
     ├── V2.2.0__create_bronze_master_tables.sql
     ├── V2.2.1__create_bronze_sales_tables.sql
     ├── V2.3.0__load_bronze_initial_2019.sql
+    ├── V3.6.0__tag_customer_pii_columns.sql      # PII tags on Bronze/Silver/Gold customer tables
     └── silver/                                   # Bronze -> Silver dynamic tables
         ├── V2.4.0__create_silver_region_master.sql
         ├── V2.4.1__create_silver_currency_master.sql
@@ -227,3 +231,19 @@ Transient dynamic tables, `REFRESH_MODE = INCREMENTAL`, `TARGET_LAG = DOWNSTREAM
 - `FACT_SALES_DAILY` is the top of the pipeline and the only table with a time lag - every Silver/Gold table below it is `DOWNSTREAM` and refreshes when it needs data. Distinct customers are not stored (not additive) - use the line fact.
 - Lineage (`GET_LINEAGE` / Snowsight graph): `SILVER.SALES_HEADER`, `SILVER.SALES_ITEM`, `DIM_DATE`, `DIM_TIME` and the 5 SCD2 dims -> `FACT_SALES_LINE` -> `FACT_SALES_DAILY`.
 - Checks (2019): every line found all dimensions (0 DQ warnings); net amount 50,186,627.97 and quantity 92,025 reconcile Silver = line fact = daily aggregate.
+
+## PII protection (tag-based masking)
+
+| Script | Object | Purpose |
+|---|---|---|
+| `V1.2.0` | role `PII_READER` (granted to `SYSADMIN`) | Only role that sees customer PII in clear text |
+| `V1.2.1` | tag `GOVERNANCE.TAGS.PII_TYPE` | NAME, EMAIL, PHONE, ADDRESS, POSTAL_CODE, DATE_OF_BIRTH |
+| `V1.2.2` | `GOVERNANCE.POLICIES.MASK_PII_STRING`, `MASK_PII_DATE` | Masking policies attached to the tag |
+| `V3.6.0` | tags on `BRONZE.CUSTOMER_MASTER`, `SILVER.CUSTOMER_MASTER`, `GOLD.DIM_CUSTOMER` | FIRST/LAST/FULL_NAME, EMAIL, PHONE_NUMBER, STREET_ADDRESS, POSTAL_CODE, DATE_OF_BIRTH |
+
+- Tag-based: the policies are attached once to the tag, so any column tagged `PII_TYPE` in any table, layer or environment is masked - new tables only need the tag.
+- Roles without `PII_READER` see: name `J***`, e-mail `j***@domain`, phone `***-***-1234`, address `*** MASKED ***`, postal code `94***`, date of birth `YYYY-01-01`. Customer ids, e-mail domain, city, state and country stay clear for analytics.
+- `PII_READER` is granted to `SYSADMIN` because the Silver/Gold dynamic tables refresh as their owner SYSADMIN; without it they would store masked values. Consequence: SYSADMIN/ACCOUNTADMIN users see PII. To separate pipeline and admins later, move dynamic table ownership to a dedicated pipeline role.
+- Policies use `IS_ROLE_IN_SESSION('PII_READER')` (constant, respects role hierarchy) - all dynamic tables stay INCREMENTAL. Tagging base columns reinitialised Silver CUSTOMER_MASTER, DIM_CUSTOMER and FACT_SALES_LINE once.
+- Verified in DEV with a temporary role without PII_READER (masked in all three layers) and SYSADMIN (clear); Silver stores clear values, 0 DQ warnings.
+- `CREATE MASKING POLICY` cannot run inside a `BEGIN ... END` block - keep each statement separate.

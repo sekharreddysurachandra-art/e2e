@@ -163,3 +163,10 @@
 - `gold/V3.5.1` FACT_SALES_DAILY: aggregate by local date x country x store x product x channel x currency; TARGET_LAG = '1 hour' (schemachange var `fact_lag`) - the one time lag in the pipeline. INCREMENTAL.
 - Verified: 77,155 lines, all dims matched, 0 WARN, 15,351 ONLINE lines without store; 68,181 daily rows; net 50,186,627.97 and qty 92,025 equal in Silver, line fact and aggregate; GET_LINEAGE shows all dims + Silver sales -> FACT_SALES_LINE -> FACT_SALES_DAILY.
 - Open: FX conversion (no rate source), semantic view, incremental load task, masking on DIM_CUSTOMER, DMFs.
+
+## 2026-11-15 – PII masking
+- Approach: tag-based masking. Role PII_READER (granted to SYSADMIN so the SYSADMIN-owned dynamic tables refresh with clear values), tag GOVERNANCE.TAGS.PII_TYPE, policies GOVERNANCE.POLICIES.MASK_PII_STRING (obfuscation per tag value via SYSTEM$GET_TAG_ON_CURRENT_COLUMN) and MASK_PII_DATE (birth year only), attached to the tag.
+- Tagged FIRST_NAME, LAST_NAME, FULL_NAME, EMAIL, PHONE_NUMBER, STREET_ADDRESS, POSTAL_CODE, DATE_OF_BIRTH on BRONZE.CUSTOMER_MASTER, SILVER.CUSTOMER_MASTER, GOLD.DIM_CUSTOMER.
+- Verified: temporary role without PII_READER sees masked values in all three layers; SYSADMIN sees clear values; Silver stores clear values (0 masked, 0 WARN); all 20 dynamic tables INCREMENTAL after one reinit of the customer chain. Test role dropped; tag and policies owned by SYSADMIN.
+- Scripts: 01_governance/V1.2.0-V1.2.2, 02_sales_db/V3.6.0.
+- Open: SYSADMIN/ACCOUNTADMIN users see PII (separate pipeline role later); grant PII_READER only on business need; consider auto-classification for new columns.
