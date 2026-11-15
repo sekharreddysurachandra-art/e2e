@@ -139,6 +139,26 @@ Every Silver table:
 Renamed for consistency: customer `REGION` → `REGION_CODE`, header `CURRENCY` → `CURRENCY_CODE`.
 2019 result: Silver rows = Bronze rows (no duplicates found), 0 `WARN` rows.
 
+### Planned: Snowflake data metric functions (DMFs) on Silver – not applied yet
+
+The `DQ_STATUS` / `DQ_ISSUES` columns check one row at a time. DMFs add table-level checks with history, thresholds (expectations) and alerts:
+
+| DMF | Applies to | Expectation | Catches |
+|---|---|---|---|
+| `DUPLICATE_COUNT` on business key | all 13 Silver tables | `VALUE = 0` | dedup not working |
+| `REFERENTIAL_INTEGRITY_COUNT` | country, product hierarchy, availability, customer, store, header, item | `VALUE = 0` | orphan rows |
+| `SOURCE_TARGET_LAG` on `__FILE_LAST_MODIFIED_NTZ` (Silver vs Bronze) | all 13 | e.g. `VALUE <= 3600` | Silver refresh behind Bronze |
+| `ROW_COUNT_DIFFERENCE` vs Bronze | all 13 | `VALUE = 0` | rows lost between layers |
+| `ROW_COUNT` + `ANOMALY_DETECTION = TRUE` | sales header/item, customer, availability | learned | unusual load volume |
+| `ACCEPTED_VALUES` on `DQ_STATUS = 'PASS'` | all 13 | `VALUE = 0` | rows flagged `WARN` |
+| `INVALID_EMAIL_COUNT`, `NULL_COUNT` | customer | `VALUE = 0` | PII field quality |
+| `SCHEMA_CHANGE_COUNT` | Bronze tables | `VALUE = 0` | schema drift |
+
+- Schedule `TRIGGER_ON_CHANGES` (run on refresh); DMFs use serverless compute.
+- `FRESHNESS` is not used: it does not accept `TIMESTAMP_NTZ` columns. `SECONDS_SINCE_ROW_COUNT_CHANGE` is not available in this account.
+- Needs `EXECUTE DATA METRIC FUNCTION` and `SNOWFLAKE.DATA_METRIC_USER` for the deploying role, plus a notification integration for alerts.
+- Planned script: `datamigrations/02_sales_db/silver/V2.9.0__attach_silver_dmfs.sql` (after approval of statements and thresholds).
+
 See `agent.md` for a summary of rules, current state and open items for new sessions.
 
 ## Local-only folders (not in Git)

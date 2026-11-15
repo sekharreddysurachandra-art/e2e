@@ -106,4 +106,5 @@ For multi-file tables run `INFER_SCHEMA` over the whole folder, not one file (si
 - Data facts: e-mail is not unique in CUSTOMER_MASTER (1,244 shared by different people - do not dedup on it); ONLINE orders have NULL STORE_ID; 24 headers in the 2019 file are dated 2020-01-01; header NET_TOTAL = sum of item LINE_TOTAL; 1 item line per transaction in 2019.
 - New objects are created as ACCOUNTADMIN by the SQL tool (USE ROLE does not persist) - transfer ownership to SYSADMIN afterwards.
 - `snow sql` with `PD77583`/`PD77583_SNOW` fails (OAuth client_id / MFA); deploy via the active SQL connection.
+- Silver DMFs proposed (see README "Planned: Snowflake data metric functions"), not attached: `DUPLICATE_COUNT`, `REFERENTIAL_INTEGRITY_COUNT`, `SOURCE_TARGET_LAG` (not `FRESHNESS` – no TIMESTAMP_NTZ support), `ROW_COUNT_DIFFERENCE`, `ROW_COUNT` + anomaly detection, `ACCEPTED_VALUES` on `DQ_STATUS`, `SCHEMA_CHANGE_COUNT`. Get approval before attaching; planned script `silver/V2.9.0__attach_silver_dmfs.sql`.
 - Not started: Gold dynamic tables, semantic view, incremental load task, masking policies, data quality checks.

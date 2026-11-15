@@ -114,4 +114,12 @@
 - Cross-table referential integrity is not enforced in Silver – check it in Gold joins.
 - `snow sql` fails with `PD77583` (OAuth client_id empty) and `PD77583_SNOW` (MFA); Silver was deployed through the active SQL connection.
 - DEV Silver objects were created by hand; the next DEV schemachange run executes `V2.4.0`–`V2.8.1` as no-ops (`IF NOT EXISTS`).
-- Next: Gold dimension and fact dynamic tables, aggregated fact, semantic view.
+- Next: Silver DMFs (`V2.9.0`, after approval), then Gold dimension and fact dynamic tables, aggregated fact, semantic view.
+
+### Data metric functions (DMFs) – reviewed, not applied
+- Question: do we need Snowflake DMFs on top of the Silver `DQ_STATUS` checks? Answer: yes – Silver checks are per row; DMFs add table-level checks (uniqueness, orphans, Silver-vs-Bronze lag and row parity, volume anomalies, schema drift) with stored history, expectations and notifications.
+- Checked availability in `SNOWFLAKE.CORE`: `ROW_COUNT`, `FRESHNESS`, `DUPLICATE_COUNT`, `NULL_COUNT`, `REFERENTIAL_INTEGRITY_COUNT`, `SOURCE_TARGET_LAG`, `ROW_COUNT_DIFFERENCE`, `INVALID_EMAIL_COUNT`, `INVALID_UUID_COUNT`, `ACCEPTED_VALUES`, `NEGATIVE_COUNT`, `FUTURE_TIMESTAMP_COUNT`, `SCHEMA_CHANGE_COUNT` available; `SECONDS_SINCE_ROW_COUNT_CHANGE` not available.
+- `FRESHNESS` does not accept `TIMESTAMP_NTZ`, so Silver-vs-Bronze lag uses `SOURCE_TARGET_LAG` on `__FILE_LAST_MODIFIED_NTZ`.
+- Proposed set documented in `README.md` (Silver layer → Planned DMFs). Nothing attached yet.
+- Open: confirm thresholds (lag limit), DMF privileges for `SYSADMIN`, notification integration; then create `V2.9.0__attach_silver_dmfs.sql`.
+
