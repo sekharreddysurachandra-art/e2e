@@ -55,12 +55,17 @@ datamigrations/
         ├── V2.6.0__create_silver_customer_master.sql
         ├── V2.7.0__create_silver_store_master.sql
         ├── V2.8.0__create_silver_sales_header.sql
-        └── V2.8.1__create_silver_sales_item.sql
+        ├── V2.8.1__create_silver_sales_item.sql
+        ├── V2.9.0__grant_bronze_select_to_sysadmin.sql
+        └── V2.9.1 … V2.9.11__scd_history_silver_<table>.sql   # masters keep change history
+    └── gold/                                     # Silver -> Gold dynamic tables
+        ├── V3.0.0__create_gold_dim_country.sql
+        └── V3.0.1__evolve_gold_dim_country_for_versioned_silver.sql
 ```
 
 - File names follow `V<version>__<description>.sql`; scripts run once, in version order.
 - `V1.x` = governance, `V2.x` = sales database. Never edit a script after it has run – add a new version instead.
-- `V2.0.x` database objects, `V2.1.x` tags, `V2.2.x` Bronze tables, `V2.3.x` Bronze loads, `V2.4.x`–`V2.8.x` Silver dynamic tables (`silver/` subfolder; schemachange scans subfolders and orders by version, not folder).
+- `V2.0.x` database objects, `V2.1.x` tags, `V2.2.x` Bronze tables, `V2.3.x` Bronze loads, `V2.4.x`–`V2.9.x` Silver dynamic tables (`silver/` subfolder), `V3.x` Gold dynamic tables (`gold/` subfolder; schemachange scans subfolders and orders by version, not folder).
 - Silver scripts accept an optional `warehouse` variable for the refresh warehouse (default `COMPUTE_WH`).
 - `V2.3.0` runs `COPY INTO`, so upload the files to the environment's stage before deploying it (otherwise it loads 0 files).
 
@@ -115,7 +120,8 @@ Columns come from `INFER_SCHEMA` and are fixed in `V2.2.0`/`V2.2.1`; loads are i
 Scripts: `datamigrations/02_sales_db/silver/`.
 
 Every Silver table:
-- De-duplicates on its business key – COPY does not reject duplicates, so the latest copy wins (newest file, then highest row number).
+- Sales header/item de-duplicate on their key – COPY does not reject duplicates, so the latest copy wins (newest file, then highest row number).
+- The 11 master tables keep change history (`V2.9.1`–`V2.9.11`): only exact re-sends are dropped – a row goes when its `ATTR_HASH` (business attributes without effective dates or load metadata) equals the previous copy of the same key; every real change, including a change back to an old value, is kept. Effective-dated masters compare within key + `EFFECTIVE_START_DATE` and keep the latest copy (so a closed version gets its new end date); two different versions with the same start date are both kept and flagged `SAME_START_DIFFERENT_ATTRIBUTES`. Masters without effective dates use `VERSION_START_TS` = file arrival time (customer: `UPDATED_AT`). Added columns: `ATTR_HASH`, `VERSION_START_TS`, `IS_LATEST`, `SILVER_SK` (MD5 of key + version + source row). Gold builds SCD2 end dates from these versions.
 - Trims text, upper-cases codes, turns empty strings into NULL, drops rows without a key, casts text dates with `TRY_TO_DATE`.
 - Flags record-level quality checks in `DQ_STATUS` (`PASS`/`WARN`) and `DQ_ISSUES` (array of failed check codes) – rows are kept, not rejected.
 - Adds `RECORD_HASH` (MD5 of business columns) and keeps the 3 Bronze metadata columns. There is no Silver load-timestamp column.
@@ -157,7 +163,7 @@ The `DQ_STATUS` / `DQ_ISSUES` columns check one row at a time. DMFs add table-le
 - Schedule `TRIGGER_ON_CHANGES` (run on refresh); DMFs use serverless compute.
 - `FRESHNESS` is not used: it does not accept `TIMESTAMP_NTZ` columns. `SECONDS_SINCE_ROW_COUNT_CHANGE` is not available in this account.
 - Needs `EXECUTE DATA METRIC FUNCTION` and `SNOWFLAKE.DATA_METRIC_USER` for the deploying role, plus a notification integration for alerts.
-- Planned script: `datamigrations/02_sales_db/silver/V2.9.0__attach_silver_dmfs.sql` (after approval of statements and thresholds).
+- Planned script: `datamigrations/02_sales_db/silver/V2.10.0__attach_silver_dmfs.sql` (after approval of statements and thresholds).
 
 See `agent.md` for a summary of rules, current state and open items for new sessions.
 

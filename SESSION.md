@@ -130,4 +130,13 @@
 - Result: 71 rows, 71 distinct SKs, 35 countries, 35 current rows; 36 WARN rows (periods before the region/currency start 2000-01-01 and tax start 2020-01-01).
 - PK/UNIQUE constraints are not supported on dynamic tables; NOT NULL declared on keys, uniqueness check query in the script.
 - Granted SELECT on `SALES_DEV.BRONZE.{COUNTRY,REGION,CURRENCY,TAX}_MASTER` to SYSADMIN (Silver DTs could not refresh).
-- Open: confirm tax effective dates (2019 sales would get no tax data); grant SYSADMIN on remaining Bronze tables.
+- Open: confirm tax effective dates (2019 sales would get no tax data).
+
+## 2026-11-15 – Silver keeps change history for SCD2
+- Problem: Silver kept the latest row per business key, so a changed record was treated as a duplicate and history was lost before Gold.
+- `silver/V2.9.0`: SELECT on all/future Bronze tables to SYSADMIN.
+- `silver/V2.9.1`–`V2.9.11`: `CREATE OR ALTER` for the 11 master tables (region, currency, tax, country, product category/family/model/SKU/availability, customer, store). Only consecutive identical `ATTR_HASH` rows are dropped; dated masters keep the latest copy per key + start date and flag `SAME_START_DIFFERENT_ATTRIBUTES`; undated masters version by file arrival (customer: `UPDATED_AT`). New columns `ATTR_HASH`, `VERSION_START_TS`, `IS_LATEST`, `SILVER_SK`. Sales header/item unchanged.
+- `gold/V3.0.1`: `DIM_COUNTRY` takes the latest arrival per code + start date from the versioned masters.
+- Verified in DEV: all Silver DTs and DIM_COUNTRY INCREMENTAL / ACTIVE / SYSADMIN; row counts unchanged (one version per key in 2019); `SILVER_SK` unique in every table; DIM_COUNTRY 71 rows, 71 SKs, 35 current. Rule tested on sample rows: re-send dropped, change and change-back kept, end-date closure keeps the new end date.
+- Deployed by pasting rendered SQL (stage upload blocked by MFA); run `ALTER DYNAMIC TABLE ... REFRESH` after `CREATE OR ALTER` because DOWNSTREAM lag does not trigger the reinit.
+- DMF plan renumbered to `V2.10.0`.
