@@ -1,0 +1,88 @@
+# agent.md – context for new sessions
+
+Read this first, then the files in "Reference files". Keep this file current when the project state changes.
+
+## Project
+End-to-end sales data platform on Snowflake: CSV files → internal stage → Bronze → Silver → Gold (medallion), deployed to DEV, QA and PROD.
+
+- Snowflake connection: `PD77583` (SQL). Use `PD77583_SNOW` for `snow stage copy` (OAuth `PD77583` fails uploads with S3 HTTP 400).
+- Role: `SYSADMIN`.
+- Git: work and push on `dev` only; `qa` and `main` are updated through PRs. Commit only when the user asks.
+
+## Reference files
+
+| File | What it contains |
+|---|---|
+| `README.md` | Branches, environments, datamigrations usage, stage upload summary |
+| `SESSION.md` | Per-session log: what was created, open items |
+| `__architectural_notes/architectural-important-notes.png` | Object creation rules (summarised below) |
+| `__architectural_notes/architectural-data-flow-rules.png` | Data flow and transformation rules (summarised below) |
+| `__architectural_notes/medallion-architecture-with-dev-qa-prod.png` | Medallion layout across DEV/QA/PROD |
+| `__initial_load/` | Source CSVs (country, customer, product, store, sales) for 2019–2025 |
+| `__financial_reports/` | Proxy statement PDFs (2019, 2022–2026) |
+| `ddl/` | Scripts run manually in early sessions |
+| `datamigrations/` | schemachange scripts (`01_governance` V1.x, `02_sales_db` V2.x) |
+
+`__*` folders and `*.csv` are git-ignored (local only).
+
+## Rules to follow (from architectural notes)
+Object creation:
+1. DEV (`SALES_DEV`) and QA (`SALES_QA`) objects are transient (no fail-safe cost).
+2. Common objects (file formats, sequences) go in the `COMMON` schema of each environment.
+3. Tags, policies and masking policies go in the `GOVERNANCE` database.
+4. Every object gets a short, meaningful comment.
+5. Always `CREATE ... IF NOT EXISTS` – never drop or replace existing objects by mistake.
+6. Data-storing objects (tables, stages) get a chargeback tag.
+
+Data flow:
+- CSVs uploaded to the internal stage with PUT / `snow stage copy`.
+- Bronze tables: structure from `INFER_SCHEMA`, loaded with `COPY`, plus 3 metadata columns `__file_name`, `__row_number`, `__load_timestamp`.
+- Bronze → Silver → Gold: dynamic tables, incremental refresh, `TARGET_LAG = DOWNSTREAM`.
+- Facts and dimensions are dynamic tables in Gold; facts reference Gold dims, not Silver tables.
+- Aggregated fact table and semantic view in Gold.
+- A task runs `COPY` for newly arrived files; dynamic tables carry them to Gold.
+
+## Current state (as of 2026-11-15)
+- Databases: `GOVERNANCE` (`TAGS`, `POLICIES`), `SALES_DEV`/`SALES_QA` (transient), `SALES_PROD` – each sales DB has `BRONZE`, `SILVER`, `GOLD`, `COMMON`.
+- `COMMON.CSV_FF` file format (header parsing, `COMPRESSION = AUTO`) in all sales DBs.
+- Tag `GOVERNANCE.TAGS.ENVIRONMENT` applied to databases/schemas.
+- Stage `SALES_DEV.BRONZE.SALES_CSV_STAGE` holds **2019 files only** (47 `.csv.gz` files under `initial_load/`). Scope is 2019 only – do not upload or load 2020–2025 unless the user asks.
+- `SALES_DEV.BRONZE` tables, all loaded from 2019 files, all with 3 metadata columns populated:
+
+| Table | Rows |
+|---|---|
+| `COUNTRY_MASTER` | 35 |
+| `CURRENCY_MASTER` | 27 |
+| `REGION_MASTER` | 5 |
+| `TAX_MASTER` | 35 |
+| `PRODUCT_CATEGORY_MASTER` | 10 |
+| `PRODUCT_COUNTRY_AVAILABILITY` | 22,750 |
+| `PRODUCT_FAMILY_MASTER` | 43 |
+| `PRODUCT_MODEL_MASTER` | 111 |
+| `PRODUCT_SKU_MASTER` | 650 |
+| `STORE_MASTER` | 121 |
+| `CUSTOMER_MASTER` | 31,350 (35 country files) |
+| `SALES_HEADER` | 77,155 |
+| `SALES_ITEM` | 77,155 |
+
+Load pattern used (repeat it for new tables):
+```sql
+COPY INTO SALES_DEV.BRONZE.<TABLE>
+FROM @SALES_DEV.BRONZE.SALES_CSV_STAGE/initial_load/<folder>/
+FILES = ('<file>.csv.gz')            -- or PATTERN for multi-file tables
+FILE_FORMAT = (FORMAT_NAME = 'SALES_DEV.COMMON.CSV_FF')
+MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
+INCLUDE_METADATA = (__FILE_NAME = METADATA$FILENAME, __ROW_NUMBER = METADATA$FILE_ROW_NUMBER,
+                    __FILE_LAST_MODIFIED_NTZ = METADATA$FILE_LAST_MODIFIED)
+ON_ERROR = ABORT_STATEMENT;
+```
+For multi-file tables run `INFER_SCHEMA` over the whole folder, not one file (single-file inference typed `CUSTOMER_MASTER.POSTAL_CODE` as a number and failed on BR postcodes).
+
+## Known gaps / open items
+- Metadata column is `__FILE_LAST_MODIFIED_NTZ`, but the rules require `__load_timestamp` – confirm with the user before changing.
+- Only `COUNTRY_MASTER` (and other country tables) have column comments; the 9 tables created on 2026-11-15 do not.
+- `SALES_HEADER` and `SALES_ITEM` have identical row counts – verify grain.
+- Bronze table DDL and COPY scripts are not yet in `ddl/` or `datamigrations/`.
+- `CSV_FF` not yet in `datamigrations/`; no `schemachange-config.yml`.
+- Chargeback tag not defined or applied.
+- Not started: Silver/Gold dynamic tables, semantic view, incremental load task, masking policies, data quality checks.
