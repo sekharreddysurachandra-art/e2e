@@ -21,7 +21,7 @@ End-to-end sales data platform on Snowflake: CSV files → internal stage → Br
 | `__initial_load/` | Source CSVs (country, customer, product, store, sales) for 2019–2025 |
 | `__financial_reports/` | Proxy statement PDFs (2019, 2022–2026) |
 | `ddl/` | Scripts run manually in early sessions |
-| `datamigrations/` | schemachange scripts (`01_governance` V1.x, `02_sales_db` V2.x) |
+| `datamigrations/` | schemachange scripts (`01_governance` V1.x, `02_sales_db` V2.x; Silver in `02_sales_db/silver/`) |
 
 `__*` folders and `*.csv` are git-ignored (local only).
 
@@ -81,11 +81,10 @@ For multi-file tables run `INFER_SCHEMA` over the whole folder, not one file (si
 ## Known gaps / open items
 - Metadata column is `__FILE_LAST_MODIFIED_NTZ`, but the rules require `__load_timestamp` – confirm with the user before changing.
 - Only `COUNTRY_MASTER` (and other country tables) have column comments; the 9 tables created on 2026-11-15 do not.
-- `SALES_HEADER` and `SALES_ITEM` have identical row counts – verify grain.
 - Bronze DDL and loads are in `datamigrations/02_sales_db/` (`V2.0.2` file format, `V2.2.0`/`V2.2.1` tables, `V2.3.0` 2019 COPY). Upload files to a stage before deploying `V2.3.0` there.
 - No `schemachange-config.yml`.
 - Chargeback tag not defined or applied.
-- Silver dynamic tables in `SALES_DEV.SILVER` (all owner SYSADMIN, INCREMENTAL, `TARGET_LAG = DOWNSTREAM`, Silver rows = Bronze rows, 0 DQ warnings):
+- Silver dynamic tables in `SALES_DEV.SILVER`, scripts in `datamigrations/02_sales_db/silver/` (all owner SYSADMIN, INCREMENTAL, `TARGET_LAG = DOWNSTREAM`, Silver rows = Bronze rows, 0 DQ warnings):
 
 | Script | Table | Key | Rows |
 |---|---|---|---|

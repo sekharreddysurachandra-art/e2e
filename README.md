@@ -41,19 +41,34 @@ datamigrations/
     ├── V2.1.0__tag_sales_database_and_schemas.sql
     ├── V2.2.0__create_bronze_master_tables.sql
     ├── V2.2.1__create_bronze_sales_tables.sql
-    └── V2.3.0__load_bronze_initial_2019.sql
+    ├── V2.3.0__load_bronze_initial_2019.sql
+    └── silver/                                   # Bronze -> Silver dynamic tables
+        ├── V2.4.0__create_silver_region_master.sql
+        ├── V2.4.1__create_silver_currency_master.sql
+        ├── V2.4.2__create_silver_tax_master.sql
+        ├── V2.4.3__create_silver_country_master.sql
+        ├── V2.5.0__create_silver_product_category_master.sql
+        ├── V2.5.1__create_silver_product_family_master.sql
+        ├── V2.5.2__create_silver_product_model_master.sql
+        ├── V2.5.3__create_silver_product_sku_master.sql
+        ├── V2.5.4__create_silver_product_country_availability.sql
+        ├── V2.6.0__create_silver_customer_master.sql
+        ├── V2.7.0__create_silver_store_master.sql
+        ├── V2.8.0__create_silver_sales_header.sql
+        └── V2.8.1__create_silver_sales_item.sql
 ```
 
 - File names follow `V<version>__<description>.sql`; scripts run once, in version order.
 - `V1.x` = governance, `V2.x` = sales database. Never edit a script after it has run – add a new version instead.
-- `V2.0.x` database objects, `V2.1.x` tags, `V2.2.x` Bronze tables, `V2.3.x` Bronze loads.
+- `V2.0.x` database objects, `V2.1.x` tags, `V2.2.x` Bronze tables, `V2.3.x` Bronze loads, `V2.4.x`–`V2.8.x` Silver dynamic tables (`silver/` subfolder; schemachange scans subfolders and orders by version, not folder).
+- Silver scripts accept an optional `warehouse` variable for the refresh warehouse (default `COMPUTE_WH`).
 - `V2.3.0` runs `COPY INTO`, so upload the files to the environment's stage before deploying it (otherwise it loads 0 files).
 
 Deploy (replace `QA` with `DEV` or `PROD`):
 
 ```bash
 schemachange deploy -f datamigrations -c PD77583 \
-  --vars '{"env":"QA","governance_db":"GOVERNANCE"}' \
+  --vars '{"env":"QA","governance_db":"GOVERNANCE","warehouse":"COMPUTE_WH"}' \
   --change-history-table GOVERNANCE.SCHEMACHANGE.CHANGE_HISTORY_QA \
   --create-change-history-table
 ```
@@ -93,6 +108,36 @@ Columns come from `INFER_SCHEMA` and are fixed in `V2.2.0`/`V2.2.1`; loads are i
 | `PRODUCT_CATEGORY_MASTER` | 10 | `SALES_HEADER` | 77,155 |
 | `PRODUCT_FAMILY_MASTER` | 43 | `SALES_ITEM` | 77,155 |
 | `PRODUCT_MODEL_MASTER` | 111 | | |
+
+## Silver layer (`SALES_DEV.SILVER`)
+
+13 transient dynamic tables, one per Bronze table (`REFRESH_MODE = INCREMENTAL`, `TARGET_LAG = DOWNSTREAM`, owner `SYSADMIN`).
+Scripts: `datamigrations/02_sales_db/silver/`.
+
+Every Silver table:
+- De-duplicates on its business key – COPY does not reject duplicates, so the latest copy wins (newest file, then highest row number).
+- Trims text, upper-cases codes, turns empty strings into NULL, drops rows without a key, casts text dates with `TRY_TO_DATE`.
+- Flags record-level quality checks in `DQ_STATUS` (`PASS`/`WARN`) and `DQ_ISSUES` (array of failed check codes) – rows are kept, not rejected.
+- Adds `RECORD_HASH` (MD5 of business columns) and keeps the 3 Bronze metadata columns. There is no Silver load-timestamp column.
+
+| Script | Table | Business key | Extra columns | Rows |
+|---|---|---|---|---|
+| `V2.4.0` | `REGION_MASTER` | `REGION_CODE` + `EFFECTIVE_START_DATE` | `IS_CURRENT` | 5 |
+| `V2.4.1` | `CURRENCY_MASTER` | `CURRENCY_CODE` + `EFFECTIVE_START_DATE` | `IS_CURRENT` | 27 |
+| `V2.4.2` | `TAX_MASTER` | `TAX_CODE` + `EFFECTIVE_START_DATE` | `IS_CURRENT`, `TAX_RATE_PCT` | 35 |
+| `V2.4.3` | `COUNTRY_MASTER` | `COUNTRY_CODE` + `EFFECTIVE_START_DATE` | `IS_CURRENT` | 35 |
+| `V2.5.0` | `PRODUCT_CATEGORY_MASTER` | `CATEGORY_CODE` + `EFFECTIVE_START_DATE` | `IS_CURRENT` | 10 |
+| `V2.5.1` | `PRODUCT_FAMILY_MASTER` | `FAMILY_CODE` | – | 43 |
+| `V2.5.2` | `PRODUCT_MODEL_MASTER` | `MODEL_CODE` | – | 111 |
+| `V2.5.3` | `PRODUCT_SKU_MASTER` | `SKU_CODE` | – | 650 |
+| `V2.5.4` | `PRODUCT_COUNTRY_AVAILABILITY` | `SKU_CODE` + `COUNTRY_CODE` | – | 22,750 |
+| `V2.6.0` | `CUSTOMER_MASTER` | `CUSTOMER_ID` (latest `UPDATED_AT` wins) | `EMAIL_DOMAIN` | 31,350 |
+| `V2.7.0` | `STORE_MASTER` | `STORE_CODE` + `EFFECTIVE_START_DATE` | `IS_CURRENT`, `IS_OPEN` | 121 |
+| `V2.8.0` | `SALES_HEADER` | `TRANSACTION_SK` | `TRANSACTION_DATE` | 77,155 |
+| `V2.8.1` | `SALES_ITEM` | `TRANSACTION_LINE_ID` | `GROSS_LINE_AMOUNT` | 77,155 |
+
+Renamed for consistency: customer `REGION` → `REGION_CODE`, header `CURRENCY` → `CURRENCY_CODE`.
+2019 result: Silver rows = Bronze rows (no duplicates found), 0 `WARN` rows.
 
 See `agent.md` for a summary of rules, current state and open items for new sessions.
 

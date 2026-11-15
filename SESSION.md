@@ -86,3 +86,32 @@
 - `SALES_HEADER` and `SALES_ITEM` have identical row counts – verify grain.
 - QA/PROD stages are empty; upload files before deploying `V2.3.0` there.
 - Next: Silver dynamic tables (incremental, `TARGET_LAG = DOWNSTREAM`).
+
+## Session 4 – 2026-11-15
+
+### Silver dynamic tables (Bronze -> Silver)
+- Created 13 transient dynamic tables in `SALES_DEV.SILVER`, one per Bronze table: `REFRESH_MODE = INCREMENTAL` (confirmed, no full-refresh fallback), `TARGET_LAG = DOWNSTREAM`, `INITIALIZE = ON_CREATE`.
+- Order: region → currency, tax, country → 5 product tables → customer → store → sales header and item.
+- Common pattern: dedup on business key (latest file/row wins, customer by latest `UPDATED_AT`), trim/upper-case, empty → NULL, text dates cast with `TRY_TO_DATE`, `DQ_STATUS`/`DQ_ISSUES` record checks, `RECORD_HASH`, 3 Bronze metadata columns.
+- `__SILVER_LOADED_AT` dropped on request – no Silver load-timestamp column.
+- Extra columns: `IS_CURRENT` (SCD2 tables), `TAX_RATE_PCT`, `EMAIL_DOMAIN`, `IS_OPEN`, `TRANSACTION_DATE`, `GROSS_LINE_AMOUNT`.
+- Ownership of all 13 tables transferred to `SYSADMIN`; granted `USAGE ON WAREHOUSE COMPUTE_WH TO ROLE SYSADMIN`.
+
+### Profiling results (2019 data)
+- No duplicate or NULL business keys in any Bronze table; Silver row counts = Bronze; 0 `WARN` rows.
+- All foreign keys resolve (country → region/currency/tax, product hierarchy, availability → SKU/country, header → customer/store, item → header/SKU).
+- `CUSTOMER_MASTER`: 1,244 e-mails shared by different people – e-mail is not a dedup key.
+- `SALES_HEADER`: 15,351 ONLINE orders have NULL `STORE_ID` (expected; all POS orders have a store). 24 transactions dated 2020-01-01 sit in the 2019 file – kept.
+- Amounts reconcile: `NET_TOTAL = GROSS_AMOUNT - TOTAL_DISCOUNT + TOTAL_TAX`, line total = qty × price − discount + tax, header net = sum of item lines. Grain is one item line per transaction in 2019 (closes the Session 3 grain item).
+- `PRODUCT_MODEL_MASTER`: "Apple Watch Ultra 2" has two model codes (2023 and 2024) – valid, key is `MODEL_CODE`.
+
+### Code in repo
+- `datamigrations/02_sales_db/silver/` – `V2.4.0`–`V2.8.1`, one script per Silver table; refresh warehouse via optional `warehouse` var (default `COMPUTE_WH`).
+- `README.md` – Silver layer section and updated folder tree; `agent.md` – Silver inventory and data facts.
+
+### Open items
+- `CUSTOMER_MASTER` holds PII (name, e-mail, phone, address, birth date) – add masking policies in `GOVERNANCE.POLICIES`.
+- Cross-table referential integrity is not enforced in Silver – check it in Gold joins.
+- `snow sql` fails with `PD77583` (OAuth client_id empty) and `PD77583_SNOW` (MFA); Silver was deployed through the active SQL connection.
+- DEV Silver objects were created by hand; the next DEV schemachange run executes `V2.4.0`–`V2.8.1` as no-ops (`IF NOT EXISTS`).
+- Next: Gold dimension and fact dynamic tables, aggregated fact, semantic view.
