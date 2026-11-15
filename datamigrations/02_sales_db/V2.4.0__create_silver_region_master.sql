@@ -10,6 +10,7 @@
 -- Dynamic tables in DEV/QA are TRANSIENT; PROD is permanent.
 -- =============================================================================
 {% set transient = 'TRANSIENT ' if env in ['DEV', 'QA'] else '' %}
+{% set wh = warehouse | default('COMPUTE_WH') %}
 
 CREATE {{ transient }}DYNAMIC TABLE IF NOT EXISTS SALES_{{ env }}.SILVER.REGION_MASTER (  -- create only if missing
   REGION_CODE              COMMENT 'Sales region code (business key, upper-case)',
@@ -28,7 +29,7 @@ CREATE {{ transient }}DYNAMIC TABLE IF NOT EXISTS SALES_{{ env }}.SILVER.REGION_
   __FILE_LAST_MODIFIED_NTZ COMMENT 'Last modified time of the source file'
 )
   TARGET_LAG   = DOWNSTREAM                -- refresh only when downstream needs it
-  WAREHOUSE    = COMPUTE_WH                -- refresh compute
+  WAREHOUSE    = {{ wh }}                -- refresh compute (var: warehouse)
   REFRESH_MODE = INCREMENTAL               -- process only changed Bronze rows
   INITIALIZE   = ON_CREATE                 -- populate immediately
   COMMENT      = 'Cleaned, de-duplicated region master'

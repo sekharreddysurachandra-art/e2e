@@ -85,4 +85,6 @@ For multi-file tables run `INFER_SCHEMA` over the whole folder, not one file (si
 - Bronze DDL and loads are in `datamigrations/02_sales_db/` (`V2.0.2` file format, `V2.2.0`/`V2.2.1` tables, `V2.3.0` 2019 COPY). Upload files to a stage before deploying `V2.3.0` there.
 - No `schemachange-config.yml`.
 - Chargeback tag not defined or applied.
-- Not started: Silver/Gold dynamic tables, semantic view, incremental load task, masking policies, data quality checks.
+- Silver dynamic tables (`V2.4.0`-`V2.4.3`, owner SYSADMIN, INCREMENTAL, `TARGET_LAG = DOWNSTREAM`): `REGION_MASTER` (5), `CURRENCY_MASTER` (27), `TAX_MASTER` (35), `COUNTRY_MASTER` (35). Pattern: dedup on business key + `EFFECTIVE_START_DATE` (latest file/row wins), trim/upper codes, `IS_CURRENT`, `RECORD_HASH`, `DQ_STATUS`/`DQ_ISSUES`, 3 Bronze metadata columns; no `__SILVER_LOADED_AT`. Warehouse via schemachange var `warehouse` (default `COMPUTE_WH`; SYSADMIN granted USAGE).
+- `snow sql` with `PD77583`/`PD77583_SNOW` fails (OAuth client_id / MFA); deploy via the active SQL connection.
+- Not started: Silver for product/store/customer/sales, Gold dynamic tables, semantic view, incremental load task, masking policies, data quality checks.
